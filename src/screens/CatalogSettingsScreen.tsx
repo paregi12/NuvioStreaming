@@ -26,6 +26,21 @@ import { clearCustomNameCache } from '../utils/catalogNameUtils';
 import { BlurView } from 'expo-blur';
 import CustomAlert from '../components/CustomAlert';
 
+// Optional iOS Glass effect (expo-glass-effect) with safe fallback for CatalogSettingsScreen
+let GlassViewComp: any = null;
+let liquidGlassAvailable = false;
+if (Platform.OS === 'ios') {
+  try {
+    // Dynamically require so app still runs if the package isn't installed yet
+    const glass = require('expo-glass-effect');
+    GlassViewComp = glass.GlassView;
+    liquidGlassAvailable = typeof glass.isLiquidGlassAvailable === 'function' ? glass.isLiquidGlassAvailable() : false;
+  } catch {
+    GlassViewComp = null;
+    liquidGlassAvailable = false;
+  }
+}
+
 interface CatalogSetting {
   addonId: string;
   catalogId: string;
@@ -652,27 +667,43 @@ const CatalogSettingsScreen = () => {
       >
         {Platform.OS === 'ios' ? (
           <Pressable style={styles.modalOverlay} onPress={() => setIsRenameModalVisible(false)}>
-            <BlurView 
-              style={styles.modalContent}
-              intensity={90}
-              tint="default"
-            >
-              <Pressable onPress={(e) => e.stopPropagation()}> 
-                <Text style={styles.modalTitle}>Rename Catalog</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  value={currentRenameValue}
-                  onChangeText={setCurrentRenameValue}
-                  placeholder="Enter new catalog name"
-                  placeholderTextColor={colors.mediumGray}
-                  autoFocus={true}
-                />
-                <View style={styles.modalButtons}>
-                  <Button title="Cancel" onPress={() => setIsRenameModalVisible(false)} color={colors.mediumGray} />
-                  <Button title="Save" onPress={handleSaveRename} color={colors.primary} />
-                </View>
-              </Pressable>
-            </BlurView>
+            {GlassViewComp && liquidGlassAvailable ? (
+              <GlassViewComp style={styles.modalContent} glassEffectStyle="regular">
+                <Pressable onPress={(e) => e.stopPropagation()}>
+                  <Text style={styles.modalTitle}>Rename Catalog</Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={currentRenameValue}
+                    onChangeText={setCurrentRenameValue}
+                    placeholder="Enter new catalog name"
+                    placeholderTextColor={colors.mediumGray}
+                    autoFocus={true}
+                  />
+                  <View style={styles.modalButtons}>
+                    <Button title="Cancel" onPress={() => setIsRenameModalVisible(false)} color={colors.mediumGray} />
+                    <Button title="Save" onPress={handleSaveRename} color={colors.primary} />
+                  </View>
+                </Pressable>
+              </GlassViewComp>
+            ) : (
+              <BlurView style={styles.modalContent} intensity={90} tint="default">
+                <Pressable onPress={(e) => e.stopPropagation()}>
+                  <Text style={styles.modalTitle}>Rename Catalog</Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={currentRenameValue}
+                    onChangeText={setCurrentRenameValue}
+                    placeholder="Enter new catalog name"
+                    placeholderTextColor={colors.mediumGray}
+                    autoFocus={true}
+                  />
+                  <View style={styles.modalButtons}>
+                    <Button title="Cancel" onPress={() => setIsRenameModalVisible(false)} color={colors.mediumGray} />
+                    <Button title="Save" onPress={handleSaveRename} color={colors.primary} />
+                  </View>
+                </Pressable>
+              </BlurView>
+            )}
           </Pressable>
         ) : (
           <Pressable style={styles.modalOverlay} onPress={() => setIsRenameModalVisible(false)}> 

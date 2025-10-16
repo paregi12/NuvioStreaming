@@ -43,7 +43,7 @@ import { RouteProp } from '@react-navigation/native';
 import { NavigationProp } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useSettings } from '../hooks/useSettings';
-import { MetadataLoadingScreen } from '../components/loading/MetadataLoadingScreen';
+import { MetadataLoadingScreen, MetadataLoadingScreenRef } from '../components/loading/MetadataLoadingScreen';
 import { useTrailer } from '../contexts/TrailerContext';
 import FastImage from '@d11/react-native-fast-image';
 
@@ -103,6 +103,10 @@ const MetadataScreen: React.FC = () => {
   const [commentBottomSheetVisible, setCommentBottomSheetVisible] = useState(false);
   const [selectedComment, setSelectedComment] = useState<any>(null);
   const [revealedSpoilers, setRevealedSpoilers] = useState<Set<string>>(new Set());
+  const loadingScreenRef = useRef<MetadataLoadingScreenRef>(null);
+  const [loadingScreenExited, setLoadingScreenExited] = useState(false);
+  // Delay flag to show sections 800ms after cast is rendered (if present)
+  const [postCastDelayDone, setPostCastDelayDone] = useState(false);
 
 
   // Debug state changes
@@ -157,24 +161,50 @@ const MetadataScreen: React.FC = () => {
   // Animate network section when data becomes available (for series)
   useEffect(() => {
     const hasNetworks = metadata?.networks && metadata.networks.length > 0;
+    const hasDescription = !!metadata?.description;
     const isSeries = Object.keys(groupedEpisodes).length > 0;
-    const shouldShow = shouldLoadSecondaryData && hasNetworks && isSeries;
+    // Defer showing until cast (if any) has finished fetching and 800ms delay elapsed
+    const shouldShow = shouldLoadSecondaryData && postCastDelayDone && hasNetworks && hasDescription && isSeries;
 
     if (shouldShow && networkSectionOpacity.value === 0) {
       networkSectionOpacity.value = withTiming(1, { duration: 400 });
     }
-  }, [metadata?.networks, Object.keys(groupedEpisodes).length, shouldLoadSecondaryData, networkSectionOpacity]);
+  }, [metadata?.networks, metadata?.description, Object.keys(groupedEpisodes).length, shouldLoadSecondaryData, postCastDelayDone, networkSectionOpacity]);
 
   // Animate production section when data becomes available (for movies)
   useEffect(() => {
     const hasNetworks = metadata?.networks && metadata.networks.length > 0;
+    const hasDescription = !!metadata?.description;
     const isMovie = Object.keys(groupedEpisodes).length === 0;
-    const shouldShow = shouldLoadSecondaryData && hasNetworks && isMovie;
+    // Defer showing until cast (if any) has finished fetching and 800ms delay elapsed
+    const shouldShow = shouldLoadSecondaryData && postCastDelayDone && hasNetworks && hasDescription && isMovie;
 
     if (shouldShow && productionSectionOpacity.value === 0) {
       productionSectionOpacity.value = withTiming(1, { duration: 400 });
     }
-  }, [metadata?.networks, Object.keys(groupedEpisodes).length, shouldLoadSecondaryData, productionSectionOpacity]);
+  }, [metadata?.networks, metadata?.description, Object.keys(groupedEpisodes).length, shouldLoadSecondaryData, postCastDelayDone, productionSectionOpacity]);
+
+  // Manage 800ms delay after cast finishes loading (only if cast is present)
+  useEffect(() => {
+    if (!shouldLoadSecondaryData) {
+      setPostCastDelayDone(false);
+      return;
+    }
+
+    if (!loadingCast) {
+      if (cast && cast.length > 0) {
+        setPostCastDelayDone(false);
+        const t = setTimeout(() => setPostCastDelayDone(true), 800);
+        return () => clearTimeout(t);
+      } else {
+        // If no cast present, no need to delay
+        setPostCastDelayDone(true);
+      }
+    } else {
+      // Reset while cast is loading
+      setPostCastDelayDone(false);
+    }
+  }, [loadingCast, cast.length, shouldLoadSecondaryData]);
 
   // Optimized hooks with memoization and conditional loading
   const watchProgressData = useWatchProgress(id, Object.keys(groupedEpisodes).length > 0 ? 'series' : type as 'movie' | 'series', episodeId, episodes);
@@ -471,8 +501,16 @@ const MetadataScreen: React.FC = () => {
     } else if (!isReady && isContentReady) {
       setIsContentReady(false);
       transitionOpacity.value = 0;
+      setLoadingScreenExited(false); // Reset for next load
     }
   }, [isReady, isContentReady, isScreenFocused]);
+
+  // Trigger loading screen exit animation when content is ready
+  useEffect(() => {
+    if (isReady && isContentReady && !loadingScreenExited && loadingScreenRef.current) {
+      loadingScreenRef.current.exit();
+    }
+  }, [isReady, isContentReady, loadingScreenExited]);
 
   // Optimized callback functions with reduced dependencies and haptics throttling
   const handleToggleLibrary = useCallback(() => {
@@ -802,15 +840,22 @@ const MetadataScreen: React.FC = () => {
     return ErrorComponent;
   }
 
-  // Show loading screen if metadata is not yet available
-  if (loading || !isContentReady) {
+  // Show loading screen if metadata is not yet available or exit animation hasn't completed
+  if (loading || !isContentReady || !loadingScreenExited) {
     console.log('🔍 [MetadataScreen] Showing loading screen:', {
       isLoading: loading,
       isContentReady,
+      loadingScreenExited,
       hasMetadata: !!metadata,
       errorMessage: metadataError
     });
-    return <MetadataLoadingScreen type={Object.keys(groupedEpisodes).length > 0 ? 'series' : type as 'movie' | 'series'} />;
+    return (
+      <MetadataLoadingScreen
+        ref={loadingScreenRef}
+        type={Object.keys(groupedEpisodes).length > 0 ? 'series' : type as 'movie' | 'series'}
+        onExitComplete={() => setLoadingScreenExited(true)}
+      />
+    );
   }
 
   return (
@@ -853,7 +898,6 @@ const MetadataScreen: React.FC = () => {
               metadata={metadata}
               bannerImage={assetData.bannerImage}
               loadingBanner={assetData.loadingBanner}
-              logoLoadError={assetData.logoLoadError}
               scrollY={animations.scrollY}
               heroHeight={animations.heroHeight}
               heroOpacity={animations.heroOpacity}
@@ -872,7 +916,6 @@ const MetadataScreen: React.FC = () => {
               navigation={navigation}
               getPlayButtonText={watchProgressData.getPlayButtonText}
               setBannerImage={assetData.setBannerImage}
-              setLogoLoadError={assetData.setLogoLoadError}
               groupedEpisodes={groupedEpisodes}
               dynamicBackgroundColor={dynamicBackgroundColor}
               handleBack={handleBack}
@@ -893,7 +936,7 @@ const MetadataScreen: React.FC = () => {
               />
 
               {/* Production info row — shown below description and above cast for series */}
-              {shouldLoadSecondaryData && Object.keys(groupedEpisodes).length > 0 && metadata?.networks && metadata.networks.length > 0 && (
+              {shouldLoadSecondaryData && Object.keys(groupedEpisodes).length > 0 && metadata?.networks && metadata.networks.length > 0 && metadata?.description && (
                 <Animated.View style={[styles.productionContainer, networkSectionAnimatedStyle]}>
                   <Text style={styles.productionHeader}>Network</Text>
                   <View style={styles.productionRow}>
@@ -928,7 +971,8 @@ const MetadataScreen: React.FC = () => {
               {shouldLoadSecondaryData &&
                 Object.keys(groupedEpisodes).length === 0 &&
                 metadata?.networks && Array.isArray(metadata.networks) &&
-                metadata.networks.some((n: any) => !!n?.logo) && (
+                metadata.networks.some((n: any) => !!n?.logo) &&
+                metadata?.description && (
                 <Animated.View style={[styles.productionContainer, productionSectionAnimatedStyle]}>
                   <Text style={styles.productionHeader}>Production</Text>
                   <View style={styles.productionRow}>

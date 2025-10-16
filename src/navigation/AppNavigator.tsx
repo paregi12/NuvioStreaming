@@ -18,6 +18,21 @@ import { useTheme } from '../contexts/ThemeContext';
 import ToastManager from 'toastify-react-native';
 import { PostHogProvider } from 'posthog-react-native';
 
+// Optional iOS Glass effect (expo-glass-effect) with safe fallback
+let GlassViewComp: any = null;
+let liquidGlassAvailable = false;
+if (Platform.OS === 'ios') {
+  try {
+    // Dynamically require so app still runs if the package isn't installed yet
+    const glass = require('expo-glass-effect');
+    GlassViewComp = glass.GlassView;
+    liquidGlassAvailable = typeof glass.isLiquidGlassAvailable === 'function' ? glass.isLiquidGlassAvailable() : false;
+  } catch {
+    GlassViewComp = null;
+    liquidGlassAvailable = false;
+  }
+}
+
 // Import screens with their proper types
 import HomeScreen from '../screens/HomeScreen';
 import LibraryScreen from '../screens/LibraryScreen';
@@ -572,18 +587,32 @@ const MainTabs = () => {
             backgroundColor: isIosTablet ? 'transparent' : 'rgba(0,0,0,0.7)'
           }}>
             {isIosTablet && (
-              <BlurView
-                tint="dark"
-                intensity={75}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  borderRadius: 28,
-                }}
-              />
+              GlassViewComp && liquidGlassAvailable ? (
+                <GlassViewComp
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    borderRadius: 28,
+                  }}
+                  glassEffectStyle="clear"
+                />
+              ) : (
+                <BlurView
+                  tint="dark"
+                  intensity={75}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    borderRadius: 28,
+                  }}
+                />
+              )
             )}
             {props.state.routes.map((route, index) => {
               const { options } = props.descriptors[route.key];
@@ -648,21 +677,32 @@ const MainTabs = () => {
         overflow: 'hidden',
       }}>
         {Platform.OS === 'ios' ? (
-          <BlurView
-            tint="dark"
-            intensity={75}
-            style={{
-              position: 'absolute',
-              height: '100%',
-              width: '100%',
-              borderTopColor: currentTheme.colors.border,
-              borderTopWidth: 0.5,
-              shadowColor: currentTheme.colors.black,
-              shadowOffset: { width: 0, height: -2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 3,
-            }}
-          />
+          GlassViewComp && liquidGlassAvailable ? (
+            <GlassViewComp
+              style={{
+                position: 'absolute',
+                height: '100%',
+                width: '100%',
+              }}
+              glassEffectStyle="clear"
+            />
+          ) : (
+            <BlurView
+              tint="dark"
+              intensity={75}
+              style={{
+                position: 'absolute',
+                height: '100%',
+                width: '100%',
+                borderTopColor: currentTheme.colors.border,
+                borderTopWidth: 0.5,
+                shadowColor: currentTheme.colors.black,
+                shadowOffset: { width: 0, height: -2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 3,
+              }}
+            />
+          )
         ) : (
           <LinearGradient
             colors={[
@@ -774,6 +814,78 @@ const MainTabs = () => {
     );
   };
   
+  // iOS: Use native bottom tabs (@bottom-tabs/react-navigation)
+  if (Platform.OS === 'ios') {
+    // Dynamically require to avoid impacting Android bundle
+    const { createNativeBottomTabNavigator } = require('@bottom-tabs/react-navigation');
+    const IOSTab = createNativeBottomTabNavigator();
+
+    return (
+      <View style={{ flex: 1, backgroundColor: currentTheme.colors.darkBackground }}>
+        <StatusBar
+          translucent
+          barStyle="light-content"
+          backgroundColor="transparent"
+        />
+        <IOSTab.Navigator
+          // Native tab bar handles its own visuals; keep options minimal
+          screenOptions={{
+            headerShown: false,
+            tabBarActiveTintColor: currentTheme.colors.primary,
+            tabBarInactiveTintColor: currentTheme.colors.white,
+            translucent: true,
+            // Prefer native lazy/freeze when available; still pass for parity
+            lazy: true,
+            freezeOnBlur: true,
+          }}
+        >
+          <IOSTab.Screen
+            name="Home"
+            component={HomeScreen}
+            options={{
+              title: 'Home',
+              tabBarIcon: () => ({ sfSymbol: 'house' }),
+            }}
+          />
+          <IOSTab.Screen
+            name="Library"
+            component={LibraryScreen}
+            options={{
+              title: 'Library',
+              tabBarIcon: () => ({ sfSymbol: 'heart' }),
+            }}
+          />
+          <IOSTab.Screen
+            name="Search"
+            component={SearchScreen}
+            options={{
+              title: 'Search',
+              tabBarIcon: () => ({ sfSymbol: 'magnifyingglass' }),
+            }}
+          />
+          {appSettings?.enableDownloads !== false && (
+            <IOSTab.Screen
+              name="Downloads"
+              component={DownloadsScreen}
+              options={{
+                title: 'Downloads',
+                tabBarIcon: () => ({ sfSymbol: 'arrow.down.circle' }),
+              }}
+            />
+          )}
+          <IOSTab.Screen
+            name="Settings"
+            component={SettingsScreen}
+            options={{
+              title: 'Settings',
+              tabBarIcon: () => ({ sfSymbol: 'gear' }),
+            }}
+          />
+        </IOSTab.Navigator>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: currentTheme.colors.darkBackground }}>
       {/* Common StatusBar for all tabs */}
